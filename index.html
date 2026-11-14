@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <!-- Supaya tampilan menyesuaikan layar HP dan komputer -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASTRA - Petualangan Hutan</title>
+
+  <style>
+    /* Gaya dasar halaman */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #101a2a;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    h1 { color: #ffe09a; margin: 14px 0 5px; }
+    p { margin: 5px 10px 12px; color: #d5dfef; }
+
+    /* Kanvas adalah tempat semua gambar game dibuat */
+    canvas {
+      display: block;
+      width: min(96vw, 800px);
+      height: auto;
+      margin: 10px auto;
+      border: 3px solid #d7b779;
+      border-radius: 12px;
+      background: #315d49;
+    }
+
+    #status {
+      width: min(96vw, 800px);
+      margin: 8px auto;
+      padding: 10px;
+      border: 1px solid #64748b;
+      border-radius: 10px;
+      background: #1b2940;
+      line-height: 1.7;
+    }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: 12px 17px;
+      margin: 4px;
+      color: #182235;
+      background: #ffd889;
+      font-weight: bold;
+      font-size: 15px;
+      cursor: pointer;
+      touch-action: none;
+    }
+    button:active { transform: scale(.96); }
+
+    #controls {
+      width: min(96vw, 800px);
+      margin: 8px auto 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .direction { display: grid; grid-template-columns: repeat(3, 48px); gap: 4px; }
+    .direction button { padding: 12px 0; margin: 0; }
+    .empty { visibility: hidden; }
+    .action button { min-width: 76px; }
+
+    #message {
+      min-height: 28px;
+      color: #ffe09a;
+      font-weight: bold;
+      padding: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>ASTRA: Petualangan Hutan</h1>
+  <p>Bantu Arka mengalahkan monster di Hutan Senja!</p>
+
+  <!-- Informasi status karakter -->
+  <div id="status">
+    <span id="level">Level: 1</span> |
+    <span id="hp">HP: 100</span> |
+    <span id="exp">EXP: 0 / 30</span> |
+    <span id="coins">Koin: 0</span>
+  </div>
+
+  <!-- Area gambar game. Ukuran logisnya 800 x 500 -->
+  <canvas id="game" width="800" height="500"></canvas>
+
+  <div id="message">Gunakan WASD / tombol panah untuk bergerak. Dekati slime lalu tekan SERANG.</div>
+
+  <!-- Tombol kontrol untuk HP -->
+  <div id="controls">
+    <div class="direction">
+      <button class="empty"> </button>
+      <button data-key="ArrowUp">▲</button>
+      <button class="empty"> </button>
+      <button data-key="ArrowLeft">◀</button>
+      <button data-key="ArrowDown">▼</button>
+      <button data-key="ArrowRight">▶</button>
+    </div>
+    <div class="action">
+      <button id="attackButton">⚔ SERANG</button>
+      <button id="restartButton">ULANG</button>
+    </div>
+  </div>
+
+  <script>
+    // 1. Ambil elemen HTML yang akan dipakai JavaScript.
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const levelText = document.getElementById("level");
+    const hpText = document.getElementById("hp");
+    const expText = document.getElementById("exp");
+    const coinsText = document.getElementById("coins");
+    const message = document.getElementById("message");
+
+    // 2. Data karakter utama.
+    const hero = {
+      x: 400,       // posisi mendatar
+      y: 250,       // posisi tegak
+      size: 18,
+      speed: 3,
+      hp: 100,
+      level: 1,
+      exp: 0,
+      nextExp: 30,
+      coins: 0,
+      attackPower: 15
+    };
+
+    // 3. Data monster. Setiap monster punya posisi dan HP.
+    let monsters = [];
+
+    function createMonsters() {
+      monsters = [
+        { x: 160, y: 130, hp: 30, alive: true },
+        { x: 630, y: 150, hp: 30, alive: true },
+        { x: 590, y: 390, hp: 30, alive: true },
+        { x: 190, y: 390, hp: 30, alive: true }
+      ];
+    }
+    createMonsters();
+
+    // 4. Menyimpan tombol mana yang sedang ditekan.
+    const keys = {};
+
+    window.addEventListener("keydown", function(event) {
+      keys[event.key] = true;
+
+      // Mencegah tombol panah menggulir halaman.
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key)) {
+        event.preventDefault();
+      }
+
+      if (event.key === " " && !event.repeat) attack();
+    });
+
+    window.addEventListener("keyup", function(event) {
+      keys[event.key] = false;
+    });
+
+    // Tombol arah layar HP.
+    document.querySelectorAll("[data-key]").forEach(function(button) {
+      const key = button.dataset.key;
+
+      button.addEventListener("pointerdown", function(event) {
+        event.preventDefault();
+        keys[key] = true;
+      });
+
+      function stopMoving(event) {
+        event.preventDefault();
+        keys[key] = false;
+      }
+
+      button.addEventListener("pointerup", stopMoving);
+      button.addEventListener("pointerleave", stopMoving);
+      button.addEventListener("pointercancel", stopMoving);
+    });
+
+    document.getElementById("attackButton").addEventListener("click", attack);
+    document.getElementById("restartButton").addEventListener("click", restart);
+
+    // 5. Menggambar latar belakang hutan.
+    function drawBackground() {
+      ctx.fillStyle = "#397052";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Jalan setapak di tengah peta.
+      ctx.fillStyle = "#b69a70";
+      ctx.beginPath();
+      ctx.moveTo(330, 500);
+      ctx.lineTo(440, 500);
+      ctx.lineTo(470, 0);
+      ctx.lineTo(360, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Pohon sederhana di beberapa titik.
+      const trees = [
+        [70, 80], [120, 300], [700, 70],
+        [740, 300], [80, 440], [720, 450]
+      ];
+
+      trees.forEach(function(tree) {
+        const x = tree[0];
+        const y = tree[1];
+
+        ctx.fillStyle = "#65452f";
+        ctx.fillRect(x - 6, y, 12, 28);
+
+        ctx.fillStyle = "#174c3a";
+        ctx.beginPath();
+        ctx.arc(x, y, 25, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#26704b";
+        ctx.beginPath();
+        ctx.arc(x - 12, y - 8, 15, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Petunjuk area.
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "16px Arial";
+      ctx.fillText("HUTAN SENJA", 20, 25);
+    }
+
+    // 6. Menggambar karakter utama.
+    function drawHero() {
+      // Badan karakter.
+      ctx.fillStyle = "#e6d5bd";
+      ctx.fillRect(hero.x - 12, hero.y - 10, 24, 28);
+
+      // Jubah.
+      ctx.fillStyle = "#9c4163";
+      ctx.fillRect(hero.x - 15, hero.y + 4, 30, 12);
+
+      // Kepala.
+      ctx.fillStyle = "#f1c7a8";
+      ctx.beginPath();
+      ctx.arc(hero.x, hero.y - 19, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rambut.
+      ctx.fillStyle = "#34263e";
+      ctx.beginPath();
+      ctx.arc(hero.x, hero.y - 23, 13, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      // Mata.
+      ctx.fillStyle = "#202033";
+      ctx.fillRect(hero.x - 5, hero.y - 20, 3, 3);
+      ctx.fillRect(hero.x + 3, hero.y - 20, 3, 3);
+    }
+
+    // 7. Menggambar monster slime.
+    function drawMonsters() {
+      monsters.forEach(function(monster) {
+        if (!monster.alive) return;
+
+        ctx.fillStyle = "#65dfc0";
+        ctx.beginPath();
+        ctx.arc(monster.x, monster.y, 19, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Mata slime.
+        ctx.fillStyle = "#173c4a";
+        ctx.fillRect(monster.x - 7, monster.y - 3, 4, 5);
+        ctx.fillRect(monster.x + 4, monster.y - 3, 4, 5);
+
+        // Bar HP monster.
+        ctx.fillStyle = "#333333";
+        ctx.fillRect(monster.x - 20, monster.y - 29, 40, 5);
+        ctx.fillStyle = "#ff6474";
+        ctx.fillRect(monster.x - 20, monster.y - 29, 40 * monster.hp / 30, 5);
+      });
+    }
+
+    // 8. Menggambar semua objek ke layar.
+    function drawGame() {
+      drawBackground();
+      drawMonsters();
+      drawHero();
+    }
+
+    // 9. Menggerakkan karakter berdasarkan tombol yang ditekan.
+    function moveHero() {
+      if (keys["ArrowUp"] || keys["w"] || keys["W"]) hero.y -= hero.speed;
+      if (keys["ArrowDown"] || keys["s"] || keys["S"]) hero.y += hero.speed;
+      if (keys["ArrowLeft"] || keys["a"] || keys["A"]) hero.x -= hero.speed;
+      if (keys["ArrowRight"] || keys["d"] || keys["D"]) hero.x += hero.speed;
+
+      // Karakter tidak boleh keluar dari peta.
+      hero.x = Math.max(20, Math.min(canvas.width - 20, hero.x));
+      hero.y = Math.max(45, Math.min(canvas.height - 20, hero.y));
+    }
+
+    // 10. Fungsi menyerang monster terdekat.
+    function attack() {
+      let target = null;
+      let nearestDistance = 65;
+
+      monsters.forEach(function(monster) {
+        if (!monster.alive) return;
+
+        const dx = monster.x - hero.x;
+        const dy = monster.y - hero.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          target = monster;
+        }
+      });
+
+      if (target === null) {
+        message.textContent = "Tidak ada monster cukup dekat. Dekati slime terlebih dahulu!";
+        return;
+      }
+
+      target.hp -= hero.attackPower;
+      message.textContent = "Serangan berhasil! HP slime berkurang.";
+
+      if (target.hp <= 0) {
+        target.alive = false;
+        hero.coins += 10;
+        gainExperience(15);
+        message.textContent = "Slime dikalahkan! Kamu mendapat 10 koin dan 15 EXP.";
+      }
+
+      updateStatus();
+      checkMission();
+    }
+
+    // 11. Menambah EXP dan menaikkan level jika EXP cukup.
+    function gainExperience(amount) {
+      hero.exp += amount;
+
+      if (hero.exp >= hero.nextExp) {
+        hero.exp -= hero.nextExp;
+        hero.level += 1;
+        hero.nextExp += 20;
+        hero.hp = 100;
+        hero.attackPower += 5;
+        message.textContent = "LEVEL UP! Level naik. Serangan bertambah kuat!";
+      }
+    }
+
+    // 12. Memperbarui tulisan HP, level, EXP, dan koin.
+    function updateStatus() {
+      levelText.textContent = "Level: " + hero.level;
+      hpText.textContent = "HP: " + hero.hp;
+      expText.textContent = "EXP: " + hero.exp + " / " + hero.nextExp;
+      coinsText.textContent = "Koin: " + hero.coins;
+    }
+
+    // 13. Mengecek apakah semua slime sudah dikalahkan.
+    function checkMission() {
+      const remaining = monsters.filter(function(monster) {
+        return monster.alive;
+      }).length;
+
+      if (remaining === 0) {
+        message.textContent = "MISI SELESAI! Semua slime dikalahkan. Hebat!";
+      }
+    }
+
+    // 14. Mengulang game dari awal.
+    function restart() {
+      hero.x = 400;
+      hero.y = 250;
+      hero.hp = 100;
+      hero.level = 1;
+      hero.exp = 0;
+      hero.nextExp = 30;
+      hero.coins = 0;
+      hero.attackPower = 15;
+      createMonsters();
+      updateStatus();
+      message.textContent = "Game dimulai ulang. Kalahkan semua slime!";
+      drawGame();
+    }
+
+    // 15. Game loop: fungsi ini berjalan berulang kali.
+    function gameLoop() {
+      moveHero();
+      drawGame();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Mulai game.
+    updateStatus();
+    drawGame();
+    gameLoop();
+  </script>
+</body>
+</html>
